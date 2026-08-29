@@ -56,4 +56,9 @@ frontend/                   statyczny frontend
 
 ## Status
 
-To uporządkowana, portfolio-safe wersja działającego prototypu. Historycznie system działał na VPS, a frontend był serwowany osobno. W tej wersji komponenty zostały zebrane w jedno repozytorium i oczyszczone z credentiali oraz prywatnych adresów infrastruktury.
+To uporządkowana, portfolio-safe wersja działającego prototypu. Historycznie system działał na VPS, a frontend był serwowany osobno. 
+https://www.facebook.com/profile.php?id=61577122662784 - przez chwile projekt był też samoprowadzącym się funpagem
+W tej wersji komponenty zostały zebrane w jedno repozytorium i oczyszczone z credentiali oraz prywatnych adresów infrastruktury.
+
+
+
