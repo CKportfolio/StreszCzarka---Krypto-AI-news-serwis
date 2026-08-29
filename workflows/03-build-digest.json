@@ -1,0 +1,336 @@
+{
+  "name": "StreszCzarka - build digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "00 7,15,23 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -512,
+        496
+      ],
+      "id": "b77ca316-e9a1-4abb-83b6-b5a21a38a06d",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "model": "mistral-small-latest",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatMistralCloud",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        640
+      ],
+      "id": "ec38d70a-14bb-41fc-bbf2-18674f057da9",
+      "name": "Mistral Cloud Chat Model"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "summary rynki ",
+        "contextWindowLength": 25
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        176,
+        672
+      ],
+      "id": "0d4cc731-1a96-4ba1-8b4e-156a1cea7774",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Set do śledzenia unikalnych tytułów\nconst seenTitles = new Set();\nconst allNotes = [];\n\n// Iterujemy po wszystkich itemach z HTTP Request Node\nfor (const item of $items()) { // $items() zwraca tablicę wszystkich wejść\n  const tytul = item.json?.tytul;\n  const tresc = item.json?.tresc;\n  const data_powstania = item.json?.data_powstania;\n\n  // Pomijamy puste pola\n  if (!tytul || !tresc) continue;\n\n  // Pomijamy duplikaty po tytule\n  if (seenTitles.has(tytul)) continue;\n  seenTitles.add(tytul);\n\n  // Dodajemy obiekt do tablicy\n  allNotes.push({ tytul, tresc, data_powstania });\n}\n\n// Zwracamy wynik z endSignal\nreturn [\n  {\n    json: {\n      combinedNotes: allNotes,\n      endSignal: \"ZAKOŃCZ\"\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -128,
+        416
+      ],
+      "id": "1537537f-2151-4c61-93a9-00a65f3d7eef",
+      "name": "kod  Rynki i makrotędy"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Otrzymasz dwa pola wejściowe:\n- combinedNotes: tablica obiektów, np.:\n{{ JSON.stringify($json.combinedNotes, null, 2) }}\n- endSignal: {{ $json.endSignal }}\n\nZasady działania:\n1. Jeśli endSignal ≠ \"ZAKOŃCZ\" → nic nie pisz, tylko czekaj.\n2. Jeśli endSignal = \"ZAKOŃCZ\":\n   - przygotuj **jeden scalony post w języku polskim**,\n   - dla KAŻDEGO elementu z tablicy combinedNotes:\n     - stwórz akapit zaczynający się od nagłówka = name i przetłumacz go na polski\n     - treść akapitu to notes (unikalne informacje, bez powtarzania),\n   - linki zostaw pod akapitami (jeśli występują w notes),\n   - nie dodawaj komentarzy ani wyjaśnień od siebie,\n   - na końcu możesz dodać hashtagi dopasowane do tematyki.\n\nZasady dodatkowe:\n- Format wyjściowy: Markdown, nie HTML.\n- Nagłówki twórz jako ### **[tytuł]**\n- Linki dawaj w formacie 🔗 [Nazwa źródła](link)\n- Tekst akapitami z pustą linią między nimi.\n- Nie używaj <p>, <hr> ani innych tagów HTML.\n- Wynik zaczynaj od pierwszego nagłówka ###, bez żadnych wstępów ani bloków kodu.\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        96,
+        416
+      ],
+      "id": "0ef1bb4a-e0f7-4366-9ba8-4165990bd0cf",
+      "name": "Rynki agent"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Pobieramy bieżącą datę w strefie Europe/Warsaw\nconst now = new Date();\nconst optionsDate = { timeZone: \"Europe/Warsaw\", day: \"2-digit\", month: \"2-digit\", year: \"numeric\" };\nconst optionsTime = { timeZone: \"Europe/Warsaw\", hour: \"2-digit\", minute: \"2-digit\", second: \"2-digit\", hour12: false };\n\n// Format daty i godziny\nconst datePart = now.toLocaleDateString(\"pl-PL\", optionsDate).replace(/\\//g, \".\");\nconst timePart = now.toLocaleTimeString(\"pl-PL\", optionsTime);\n\n// Tworzymy tytuł w formacie DD.MM.YYYY, HH:MM:SS\nconst title = `${datePart}, ${timePart}`;\n\n// 2. Pobieramy output od poprzedniego node'a (pierwszy item)\nlet output = $input.first().json.output || \"\";\n\n// 3. Zamieniamy separator \"---\" na <hr /> i podwójne nowe linie na <p>\nlet formattedOutput = output\n  .replace(/---/g, \"<hr />\")\n  .split(/\\n{2,}/) // każde dwa lub więcej enterów traktujemy jako akapit\n  .map(block => block.trim())\n  .filter(Boolean)\n  .map(block => `<p>${block}</p>`)\n  .join(\"\");\n\n// 4. Zwracamy title i sformatowany output\nreturn [\n  {\n    json: {\n      title,\n      output: formattedOutput\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        672
+      ],
+      "id": "bd82ba92-c0a9-4a6b-911f-ca737a5ad6ca",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "tableId": "posts",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ $json.output }}"
+            },
+            {
+              "fieldId": "title",
+              "fieldValue": "={{ $json.title }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        576,
+        416
+      ],
+      "id": "3481f81b-dd7b-464a-b362-556b7f8b5167",
+      "name": "Supabase"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $('Code').first().json.output;\n\n// 1. Usuń tagi HTML\nlet clean = raw\n  .replace(/<p>/g, '\\n')\n  .replace(/<\\/p>/g, '\\n')\n  .replace(/<hr\\s*\\/?>/g, '\\n--------------------------------\\n')\n  .replace(/<[^>]+>/g, '') // usuwa wszystkie pozostałe tagi\n  .replace(/\\n{2,}/g, '\\n\\n'); // normalizacja nowych linii\n\n// 2. Dodaj odstęp po tytułach (linie zaczynające się od ###)\nclean = clean.replace(/^###\\s*(.*)$/gm, \"### $1\\n\");\n\n// 3. Dodaj wcięcie do akapitów (linie nie będące tytułem ani separatorem)\nclean = clean.replace(/^(?!###|[-]{32}\\n)(.+)$/gm, \"\\t$1\");\n\n// 4. Trim całości\nlet formatted = clean.trim();\n\n// 5. Dodaj disclaimer przed hashtagami\nformatted = formatted.replace(\n  /(#Bitcoin.*)$/s,\n  \"Artykuł jest wynikiem działania automatyzacji opartej na AI, która podsumowuje najważniejsze informacje z ostatnich 8 godzin z serwisów Coindesk i Cointelegraph – Nie jest to doskonałe - Uwagi mile widziane - Zapraszam do kontaktu🙌\\n\\n$1\"\n);\n\nreturn {\n  json: {\n    output: formatted\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        496
+      ],
+      "id": "5f9554f6-955d-4ad3-ac14-248075f33a42",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "httpRequestMethod": "POST",
+        "graphApiVersion": "v23.0",
+        "node": "YOUR_FACEBOOK_PAGE_ID",
+        "edge": "feed",
+        "options": {
+          "queryParameters": {
+            "parameter": [
+              {
+                "name": "message",
+                "value": "={{ $json.output }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        688
+      ],
+      "id": "b4adf212-ffd6-42f5-862a-31e33779a7e0",
+      "name": "Facebook Graph API1",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.STRESZCZARKA_STORAGE_API_URL + '/api/artykuly' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.STRESZCZARKA_INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -320,
+        528
+      ],
+      "id": "42c7f302-03b9-4e0e-be9b-2a2382eb63f0",
+      "name": "artykuly"
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $env.STRESZCZARKA_STORAGE_API_URL + '/api/artykuly/clear' }}",
+        "options": {},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.STRESZCZARKA_INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendHeaders": true
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        768,
+        656
+      ],
+      "id": "4f95a0be-4392-4a47-93af-d8cac607c5c7",
+      "name": "do kasacji"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "artykuly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mistral Cloud Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Rynki agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Rynki agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "kod  Rynki i makrotędy": {
+      "main": [
+        [
+          {
+            "node": "Rynki agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rynki agent": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase": {
+      "main": [
+        [
+          {
+            "node": "do kasacji",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Facebook Graph API1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "artykuly": {
+      "main": [
+        [
+          {
+            "node": "kod  Rynki i makrotędy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "do kasacji": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

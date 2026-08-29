@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>StreszCzarka</title>
+  <style>
+    :root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#171717;background:#f5f5f2}
+    *{box-sizing:border-box} body{margin:0} main{max-width:980px;margin:0 auto;padding:48px 20px 80px}
+    h1{font-size:clamp(34px,6vw,64px);margin:0 0 8px;letter-spacing:-.04em} .lead{color:#5c5c5c;max-width:680px;line-height:1.6;margin:0 0 34px}
+    h2{margin:38px 0 14px;font-size:22px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+    .card,.post{background:white;border:1px solid #deded8;border-radius:14px;padding:16px}.card strong{display:block;margin-bottom:6px}.card span{color:#555}
+    .posts{display:grid;gap:14px}.post h3{margin:0 0 8px}.date{font-size:13px;color:#777;margin-bottom:12px}.content{white-space:pre-wrap;line-height:1.6}
+    .empty{color:#777;padding:18px 0}.footer{margin-top:42px;color:#888;font-size:13px}.status{font-size:13px;color:#777}
+  </style>
+</head>
+<body>
+<main>
+  <h1>StreszCzarka</h1>
+  <p class="lead">Automatyczny przegląd informacji: źródła RSS → pobranie pełnej treści → streszczenie i klasyfikacja AI → zapis → okresowy digest.</p>
+  <div class="status" id="status">Ładowanie danych…</div>
+
+  <section id="dashboardSection" hidden>
+    <h2>Rynki</h2>
+    <div class="grid" id="dashboard"></div>
+  </section>
+
+  <section>
+    <h2>Podsumowania</h2>
+    <div class="posts" id="posts"></div>
+  </section>
+
+  <div class="footer">Dane publikacyjne są odczytywane z Supabase. Klucze zapisu pozostają po stronie automatyzacji.</div>
+</main>
+<script>
+const SUPABASE_URL='__SUPABASE_URL__';
+const SUPABASE_KEY='__SUPABASE_ANON_KEY__';
+const headers={apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`};
+
+function plainText(value){
+  const el=document.createElement('textarea');
+  el.innerHTML=String(value??'')
+    .replace(/<\/p>/gi,'\n\n')
+    .replace(/<br\s*\/?\s*>/gi,'\n')
+    .replace(/<hr\s*\/?\s*>/gi,'\n────────\n')
+    .replace(/<[^>]*>/g,'')
+    .replace(/^###\s*/gm,'');
+  return el.value.trim();
+}
+
+async function read(table,query=''){
+  const r=await fetch(`${SUPABASE_URL}/rest/v1/${table}?${query}`,{headers});
+  if(!r.ok) throw new Error(`${table}: ${r.status}`);
+  return r.json();
+}
+
+async function load(){
+  const statusEl=document.getElementById('status');
+  const postsEl=document.getElementById('posts');
+  let posts=[];
+  try{
+    posts=await read('posts','select=title,content,created_at&order=created_at.desc&limit=30');
+  }catch(e){
+    statusEl.textContent='Nie udało się pobrać podsumowań.';
+    postsEl.innerHTML='<div class="empty">Brak danych.</div>';
+    return;
+  }
+
+  postsEl.innerHTML='';
+  if(!posts.length) postsEl.innerHTML='<div class="empty">Brak opublikowanych podsumowań.</div>';
+  for(const post of posts){
+    const article=document.createElement('article');
+    article.className='post';
+    const h=document.createElement('h3'); h.textContent=post.title||'Podsumowanie';
+    const d=document.createElement('div'); d.className='date'; d.textContent=post.created_at?new Date(post.created_at).toLocaleString('pl-PL'):'';
+    const c=document.createElement('div'); c.className='content'; c.textContent=plainText(post.content);
+    article.append(h,d,c); postsEl.append(article);
+  }
+
+  try{
+    const dashboard=await read('dashboard','select=title,content&order=title.asc');
+    if(dashboard.length){
+      document.getElementById('dashboardSection').hidden=false;
+      const target=document.getElementById('dashboard');
+      target.innerHTML='';
+      dashboard.forEach(row=>{
+        const card=document.createElement('div'); card.className='card';
+        const name=document.createElement('strong'); name.textContent=row.title;
+        const value=document.createElement('span'); value.textContent=row.content??'—';
+        card.append(name,value); target.append(card);
+      });
+    }
+  }catch(_e){ /* dashboard is optional */ }
+
+  statusEl.textContent=`Ostatnia aktualizacja widoku: ${new Date().toLocaleString('pl-PL')}`;
+}
+
+load();
+</script>
+</body>
+</html>

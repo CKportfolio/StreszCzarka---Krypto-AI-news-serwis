@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>StreszCzarka · baza</title>
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:1200px;margin:0 auto;padding:24px;background:#f5f5f5;color:#222}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+    select,button,input{font:inherit;padding:8px 10px}
+    .box{margin-top:18px;background:#fff;border:1px solid #ddd;border-radius:10px;overflow:auto}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{padding:9px;border-bottom:1px solid #eee;vertical-align:top;text-align:left;max-width:520px;white-space:pre-wrap}
+    th{position:sticky;top:0;background:#fafafa}
+    .muted{color:#666;font-size:13px}
+  </style>
+</head>
+<body>
+<header>
+  <div><h1>StreszCzarka · baza</h1><div class="muted">Prosty podgląd wewnętrznego Postgresa.</div></div>
+  <div><select id="table"></select> <button id="refresh">Odśwież</button></div>
+</header>
+<div class="box" id="content">Ładowanie…</div>
+<script>
+const API_KEY_STORAGE='streszczarka_internal_api_key';
+let apiKey=localStorage.getItem(API_KEY_STORAGE)||'';
+async function api(path){
+  const headers={};
+  if(apiKey) headers['X-API-Key']=apiKey;
+  let r=await fetch(path,{headers});
+  if(r.status===401){
+    apiKey=prompt('Podaj INTERNAL_API_KEY')||'';
+    localStorage.setItem(API_KEY_STORAGE,apiKey);
+    r=await fetch(path,{headers:{'X-API-Key':apiKey}});
+  }
+  if(!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':'&quot;',"'":'&#39;'}[c]));
+async function loadTables(){
+  const tables=await api('/api/tables');
+  table.innerHTML=tables.map(t=>`<option>${esc(t)}</option>`).join('');
+  await loadData();
+}
+async function loadData(){
+  content.textContent='Ładowanie…';
+  const rows=await api(`/api/${encodeURIComponent(table.value)}`);
+  if(!rows.length){content.innerHTML='<p style="padding:16px">Brak rekordów.</p>';return;}
+  const keys=Object.keys(rows[0]);
+  content.innerHTML=`<table><thead><tr>${keys.map(k=>`<th>${esc(k)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${keys.map(k=>`<td>${esc(row[k])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+table.addEventListener('change',loadData);
+refresh.addEventListener('click',loadData);
+loadTables().catch(e=>content.textContent=e.message);
+</script>
+</body>
+</html>

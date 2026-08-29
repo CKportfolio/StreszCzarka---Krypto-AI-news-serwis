@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./services/storage-api/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+
+  storage-api:
+    build: ./services/storage-api
+    restart: unless-stopped
+    environment:
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_HOST: db
+      DB_PORT: 5432
+      PORT: 8900
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    ports:
+      - "127.0.0.1:${STORAGE_API_PORT:-8900}:8900"
+    depends_on:
+      - db
+
+  article-extractor:
+    build: ./services/article-extractor
+    restart: unless-stopped
+    environment:
+      PORT: 10420
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS}
+    ports:
+      - "127.0.0.1:${EXTRACTOR_PORT:-10420}:10420"
+
+volumes:
+  db-data:

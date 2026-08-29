@@ -1,0 +1,756 @@
+{
+  "name": "StreszCzarka - ingest Coindesk",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -304,
+        48
+      ],
+      "id": "c3817b42-fbf4-45f9-a2ba-c2dcbe5b809e",
+      "name": "When clicking ‘Test workflow’",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d781a357-a35e-4408-9630-5eac391cec14",
+              "name": "tytuł",
+              "value": "={{ $json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "f72dd82b-27c0-4a47-8e45-4936f4900274",
+              "name": "Link",
+              "value": "={{ $json.link }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        368,
+        112
+      ],
+      "id": "7e3ac477-7838-4ed1-8c5c-5ccbb78e1ff6",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.STRESZCZARKA_EXTRACTOR_URL + '/extract' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.STRESZCZARKA_INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.originalLink }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -80,
+        480
+      ],
+      "id": "83b52cdd-1654-423b-a9d9-847c0d7373b5",
+      "name": "pobierator artykułu",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "model": "mistral-small-latest",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatMistralCloud",
+      "typeVersion": 1,
+      "position": [
+        304,
+        576
+      ],
+      "id": "f998bc8b-9871-4007-8b3e-ea7e05608c60",
+      "name": "Mistral Cloud Chat Model"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Streść ten artykuł w sposób zwięzły i profesjonalny do kilku najważniejszych krótkich punktów (1-4 zdania) skup się na wyciagnięciu faktów, ale nie zgób ogólnego sensu przekazu:{{ $json.content }} \nNa koniec wklej link:\n{{ $json.link }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        400,
+        480
+      ],
+      "id": "3dcbce90-521d-45d9-8a00-5e8337afefe9",
+      "name": "Streszczarka"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 3
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -192,
+        256
+      ],
+      "id": "067f0b54-e6c5-45d5-a67b-afb79b145dd8",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sprawdź, czy mamy prawidłowy content i title\nif (!$json.content || !$json.title) {\n  return []; // Jeśli nie, przerwij działanie\n}\n\n// Pobierz link z node'a o nazwie \"Edit Fields\"\nconst link = $('Edit Fields').first().json.Link;\n\n// Oczyść tekst\nconst cleaned = $json.content\n  .split('\\n')\n  .map(line => line.trim())\n  .filter(line =>\n    line.length > 30 &&\n    !/^\\d+$/.test(line) &&\n    !line.toLowerCase().includes(\"cookie\") &&\n    !line.toLowerCase().includes(\"newsletter\") &&\n    !line.toLowerCase().includes(\"subscribe\") &&\n    !line.toLowerCase().includes(\"follow us\") &&\n    !line.toLowerCase().includes(\"advertise\") &&\n    !line.toLowerCase().includes(\"copyright\") &&\n    !line.toLowerCase().includes(\"about\") &&\n    !line.toLowerCase().includes(\"terms\") &&\n    !line.toLowerCase().includes(\"privacy\")\n  )\n  .slice(0, 40)\n  .join(\"\\n\\n\");\n\nreturn [\n  {\n    json: {\n      title: $json.title,\n      content: cleaned,\n      link: link || null // osobne pole na link (null jeśli brak)\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        480
+      ],
+      "id": "85dc7c46-c121-4173-96a6-976ad4a28619",
+      "name": "wycinator tekstu"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Link nowego artykułu (z Code2)\nconst newArticleLink = $('Code2').first().json.link?.trim();\n\n// Wszystkie linki z archiwum (input workflow)\nconst existingLinks = $input.all()\n  .map(item => item.json.link?.trim())\n  .filter(Boolean);\n\n// Sprawdzenie duplikatu\nconst isDuplicate = existingLinks.includes(newArticleLink);\n\nreturn [\n  {\n    json: {\n      duplicate: isDuplicate,\n      checkedAgainst: existingLinks.length\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        128
+      ],
+      "id": "308b50e6-3165-48e3-8b76-fe23b3b7871a",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8b3fd920-8001-45ea-871c-5e52644f5ce9",
+              "leftValue": "={{ $json.duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        240
+      ],
+      "id": "52dfa04a-e260-48af-bb02-161711b17ad4",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pobieramy link z nodu \"Edit Fields\"\nconst link = $('Edit Fields').first().json.Link;\n\n// Przykładowo budujemy URL do API z tym linkiem jako parametrem (jeśli potrzebujesz)\nconst finalUrl = `https://api.example.com/parse?url=${encodeURIComponent(link)}`;\n\n// Przekazujemy dalej jako output do HTTP Request node\nreturn [\n  {\n    json: {\n      url: finalUrl,\n      originalLink: link\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        480
+      ],
+      "id": "fb29167c-6d98-415a-a64c-85f5a9dc91e3",
+      "name": "Parser linku"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Masz za zadanie sklasyfikować artykuły branżowe o kryptowalutach do jednej z dwóch kategorii: SZUM lub INFORMACJA.\n\nSZUM oznacza treści, które:\n\nopierają się na czyichś opiniach, przewidywaniach, prognozach, hipotezach (W „mogłoby się zdarzyć”, „może nastąpić”, „możliwe, że”),\n\nkomentują codzienne wahania cen kryptowalut lub doniesienia medialne, które nie są faktami,\n\nartykuły oparte na wypowiedziach ekspertów\n\nartykuły o zmianach kadrowych w firmach i urzędach\n\nzawierają niepotwierdzone informacje o działaniach osób, firm, polityków lub instytucji, które są spekulacjami, opiniami lub sugestiami,\n\nopisują potencjalne scenariusze prawne, regulacyjne lub rynkowe w trybie przypuszczającym.\n\npropozycje zmian prawnych\n\nOpisujące procesy sądowe i ataki hakerskie, oraz fuzje firm nie wnoszące zmian strukturalnych na rynku\n\nDotyczą memcoinów\n\nINFORMACJA oznacza treści, które:\n\nopisują faktyczne wydarzenia lub decyzje, np. realną adopcję kryptowalut przez instytucje lub państwa,\n\nprzedstawiają prawnie obowiązujące przepisy lub zmiany w prawie, które już weszły w życie lub są formalnie wprowadzone,\n\nraportują rzeczywiste wpływy/odpływy kapitału do funduszy ETF kryptowalutowych,\n\ndokumentują duże, faktyczne skoki cen wiodących kryptowalut,\n\nopisują nowe technologie blockchain lub ich adopcję w rzeczywistości,\n\nwyjaśniają zjawiska rynkowe, technologiczne lub prawne w sposób obiektywny, bez trybu przypuszczającego.\n\nZadanie: Przeczytaj poniższy artykuł i zaklasyfikuj go jako SZUM lub INFORMACJA. Odpowiedz tylko jedną słowem: SZUM lub INFORMACJA.\n\n\nArtykuł:\n {{ $json.text }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        752,
+        480
+      ],
+      "id": "9c2730ab-5971-40dc-ae66-300ff9ea01dc",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": "mistral-small-latest",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatMistralCloud",
+      "typeVersion": 1,
+      "position": [
+        624,
+        688
+      ],
+      "id": "0bd0c002-7381-45bf-a331-2c2e521ae740",
+      "name": "Mistral Cloud Chat Model1"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "akapity"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        768,
+        688
+      ],
+      "id": "86b3995c-a12d-4cd5-8965-da53e54db29a",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalizujemy wynik klasyfikacji i przekazujemy dane dalej.\nconst classification = ($input.first().json.output || \"\")\n  .toUpperCase()\n  .replace(/\\*/g, \"\")\n  .trim();\n\nconst originalLink = $('Parser linku').first().json.originalLink;\nconst text = $('Streszczarka').first().json.text;\nconst tytul = $('wycinator tekstu').first().json.title;\nconst data_powstania = new Date().toISOString();\n\nreturn [\n  {\n    json: {\n      classification,\n      originalLink,\n      text,\n      tytul,\n      data_powstania\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        336
+      ],
+      "id": "3d4158fb-f137-44fc-8adb-e52919f7c70d",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.STRESZCZARKA_STORAGE_API_URL + '/api/archiwum' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.STRESZCZARKA_INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        528,
+        272
+      ],
+      "id": "3bee906e-079c-4305-a207-a37e2f57e5d8",
+      "name": "Archiwum"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "55f43ac5-80d1-4fcc-84fc-287874601475",
+              "leftValue": "={{ $('AI Agent').item.json.output }}",
+              "rightValue": "INFORMACJA",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1312,
+        480
+      ],
+      "id": "e714ad4b-b091-431c-a1d2-8a85c2e55e1f",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.STRESZCZARKA_STORAGE_API_URL + '/api/Artykuly' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.STRESZCZARKA_INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "tytul",
+              "value": "={{ $json.tytul }}"
+            },
+            {
+              "name": "tresc",
+              "value": "={{ $json.tresc }}"
+            },
+            {
+              "name": "data_powstania",
+              "value": "={{ $json.data_powstania }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1648,
+        384
+      ],
+      "id": "7cfc0d02-b396-4a5f-9f46-a6416ac1e4f7",
+      "name": "Informacja"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.STRESZCZARKA_STORAGE_API_URL + '/api/szum' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.STRESZCZARKA_INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "tytul",
+              "value": "={{ $json.tytul }}"
+            },
+            {
+              "name": "tresc",
+              "value": "={{ $json.tresc }}"
+            },
+            {
+              "name": "data_powstania",
+              "value": "={{ $json.data_powstania }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1648,
+        576
+      ],
+      "id": "383335dc-908d-4301-8df7-2304f64acd0b",
+      "name": "Szum"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.STRESZCZARKA_STORAGE_API_URL + '/api/archiwum' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.STRESZCZARKA_INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "tytul",
+              "value": "={{ $json.tytul }}"
+            },
+            {
+              "name": "link",
+              "value": "={{ $json.originalLink }}"
+            },
+            {
+              "name": "data_powstania",
+              "value": "={{ $json.data_powstania }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1104,
+        608
+      ],
+      "id": "394ac893-614c-444d-9934-4685838de318",
+      "name": "Archiwum zapis"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node (JavaScript)\n\n// Pobieramy tytuł i datę powstania z poprzedniego węzła (np. node, który wstawił wiersz do DB)\nconst tytul = $input.first().json.row.tytul;\nconst data_powstania = $input.first().json.row.data_powstania;\n\n// Pobieramy treść z innego węzła (Code in JavaScript)\nconst tresc = $('Code in JavaScript').first().json.text;\n\n// Zwracamy jako wynik do dalszego workflow\nreturn [\n  {\n    json: {\n      tytul,\n      data_powstania,\n      tresc,\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        288
+      ],
+      "id": "6012e16e-0e78-4763-a98e-80089bad7e0f",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node (JavaScript)\n\n// Pobieramy tytuł i datę powstania z poprzedniego węzła (np. node, który wstawił wiersz do DB)\nconst tytul = $input.first().json.row.tytul;\nconst data_powstania = $input.first().json.row.data_powstania;\n\n// Pobieramy treść z innego węzła (Code in JavaScript)\nconst tresc = $('Code in JavaScript').first().json.text;\n\n// Zwracamy jako wynik do dalszego workflow\nreturn [\n  {\n    json: {\n      tytul,\n      data_powstania,\n      tresc,\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        768
+      ],
+      "id": "71bbd1ff-677c-45ea-85cd-2a5c909e98c5",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Wejściowe dane - 31 itemów RSS\nconst items = $input.all(); // albo $input.item if single\n\n// Funkcja do parsowania daty z pubDate\nfunction parseDate(dateString) {\n  return new Date(dateString);\n}\n\n// Znajdujemy item z najświeższą datą\nlet newestItem = items[0];\nlet newestDate = parseDate(newestItem.json.pubDate);\n\nfor (let i = 1; i < items.length; i++) {\n  const currentDate = parseDate(items[i].json.pubDate);\n  if (currentDate > newestDate) {\n    newestDate = currentDate;\n    newestItem = items[i];\n  }\n}\n\n// Zwracamy tylko najświeższy item\nreturn [newestItem];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        272
+      ],
+      "id": "1c9e10fd-ea72-4d79-9919-d078f4fb180b",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        128
+      ],
+      "id": "564084d9-f972-40e7-9901-911f96ff7923",
+      "name": "RSS Coindesk"
+    }
+  ],
+  "connections": {
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Archiwum",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pobierator artykułu": {
+      "main": [
+        [
+          {
+            "node": "wycinator tekstu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mistral Cloud Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Streszczarka",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Streszczarka": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "RSS Coindesk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "wycinator tekstu": {
+      "main": [
+        [
+          {
+            "node": "Streszczarka",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Parser linku",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parser linku": {
+      "main": [
+        [
+          {
+            "node": "pobierator artykułu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mistral Cloud Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Archiwum zapis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archiwum": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archiwum zapis": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Informacja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Szum",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Coindesk": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS "Artykuly" (
+  id SERIAL PRIMARY KEY,
+  tytul TEXT NOT NULL,
+  tresc TEXT NOT NULL,
+  data_powstania TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS "Szum" (
+  id SERIAL PRIMARY KEY,
+  tytul TEXT NOT NULL,
+  tresc TEXT NOT NULL,
+  data_powstania TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS "Archiwum" (
+  id SERIAL PRIMARY KEY,
+  tytul TEXT NOT NULL,
+  link TEXT NOT NULL UNIQUE,
+  data_powstania TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_archiwum_data ON "Archiwum" (data_powstania);
