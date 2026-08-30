@@ -9,7 +9,7 @@
     "check:syntax": "node --check index.js && node --check lib/security.js"
   },
   "dependencies": {
-    "express": "^4.21.2",
+    "express": "^5.2.1",
     "playwright": "1.62.1"
   }
 }
