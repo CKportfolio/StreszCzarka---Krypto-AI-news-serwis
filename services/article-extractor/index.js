@@ -1,30 +1,26 @@
 import express from 'express';
 import { chromium } from 'playwright';
+import {
+  createApiKeyGuard,
+  isAllowedBrowserRequest,
+  parseAllowedHosts,
+  validateTargetUrl
+} from './lib/security.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 const PORT = Number(process.env.PORT || 10420);
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
-const ALLOWED_HOSTS = (process.env.ALLOWED_HOSTS || 'coindesk.com,cointelegraph.com,tradingeconomics.com,google.com')
-  .split(',')
-  .map(v => v.trim().toLowerCase())
-  .filter(Boolean);
+const ALLOWED_HOSTS = parseAllowedHosts(process.env.ALLOWED_HOSTS);
+
+if (!INTERNAL_API_KEY) {
+  console.error('Missing required environment variable: INTERNAL_API_KEY');
+  process.exit(1);
+}
 
 let browser;
-
-function isAllowedHost(hostname) {
-  const host = hostname.toLowerCase();
-  return ALLOWED_HOSTS.some(allowed => host === allowed || host.endsWith(`.${allowed}`));
-}
-
-function requireApiKey(req, res, next) {
-  if (!INTERNAL_API_KEY) return next();
-  if (req.get('x-api-key') !== INTERNAL_API_KEY) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  next();
-}
+const requireApiKey = createApiKeyGuard(INTERNAL_API_KEY);
 
 async function getBrowser() {
   if (!browser) {
@@ -39,19 +35,11 @@ app.post('/extract', requireApiKey, async (req, res) => {
   const { url } = req.body || {};
   if (!url) return res.status(400).json({ error: 'Missing url' });
 
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return res.status(400).json({ error: 'Invalid URL' });
+  const validation = validateTargetUrl(url, ALLOWED_HOSTS);
+  if (!validation.ok) {
+    return res.status(validation.status).json({ error: validation.error });
   }
-
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    return res.status(400).json({ error: 'Only http/https URLs are allowed' });
-  }
-  if (!isAllowedHost(parsed.hostname)) {
-    return res.status(403).json({ error: `Host not allowed: ${parsed.hostname}` });
-  }
+  const parsed = validation.url;
 
   let context;
   try {
@@ -60,6 +48,17 @@ app.post('/extract', requireApiKey, async (req, res) => {
       userAgent: 'Mozilla/5.0 (compatible; StreszCzarka/1.0; +portfolio)',
       javaScriptEnabled: true
     });
+
+    // Enforce the allowlist for every browser network request, not only the
+    // initial URL. This also blocks redirects or subrequests to unexpected hosts.
+    await context.route('**/*', async route => {
+      const requestUrl = route.request().url();
+      if (isAllowedBrowserRequest(requestUrl, ALLOWED_HOSTS)) {
+        return route.continue();
+      }
+      return route.abort('blockedbyclient');
+    });
+
     const page = await context.newPage();
     await page.goto(parsed.toString(), { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(500);
