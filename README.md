@@ -62,3 +62,20 @@ W tej wersji komponenty zostały zebrane w jedno repozytorium i oczyszczone z cr
 
 
 
+
+## Automatyczna weryfikacja
+
+Repozytorium zawiera GitHub Actions sprawdzające przy zmianach kodu:
+
+- składnię JavaScript,
+- testy bezpieczeństwa allowlisty URL i uwierzytelniania usług wewnętrznych,
+- walidację identyfikatorów SQL używanych przez storage API,
+- kontrakty eksportów n8n (poprawny JSON, brak przypiętych credentiali, zmienne środowiskowe),
+- build statycznego frontendu z testowymi publicznymi wartościami Supabase,
+- konfigurację Docker Compose (wiązanie usług do loopback),
+- `npm audit --audit-level=high` dla obu usług Node.js,
+- budowanie obu obrazów Docker.
+
+`INTERNAL_API_KEY` jest wymagany przez obie usługi. Article extractor ponownie sprawdza allowlistę hostów dla każdego żądania wykonywanego przez przeglądarkę, dzięki czemu przekierowanie lub subrequest nie omija walidacji wejściowego URL.
+
+> Uwaga: testy CI nie wykonują prawdziwych zapytań do Mistral, Supabase, n8n ani zewnętrznych serwisów newsowych. Weryfikują kod, kontrakty i budowanie komponentów bez używania prywatnych credentiali.

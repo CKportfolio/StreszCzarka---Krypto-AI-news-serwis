@@ -1,0 +1,13 @@
+{
+  "name": "streszczarka-portfolio",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "check:syntax": "node scripts/check-syntax.mjs",
+    "test:contracts": "node --test tests/*.test.mjs",
+    "test:article": "npm test --prefix services/article-extractor",
+    "test:storage": "npm test --prefix services/storage-api",
+    "test": "npm run test:contracts && npm run test:article && npm run test:storage",
+    "ci": "npm run check:syntax && npm test"
+  }
+}

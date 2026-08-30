@@ -2,6 +2,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const path = require('path');
 const cron = require('node-cron');
+const { createApiKeyGuard, normalizeTableName, safeField } = require('./lib/security');
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -10,7 +11,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const PORT = Number(process.env.PORT || 8900);
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
-for (const name of ['DB_USER', 'DB_PASSWORD', 'DB_NAME', 'DB_HOST']) {
+for (const name of ['DB_USER', 'DB_PASSWORD', 'DB_NAME', 'DB_HOST', 'INTERNAL_API_KEY']) {
   if (!process.env[name]) {
     console.error(`Missing required environment variable: ${name}`);
     process.exit(1);
@@ -25,27 +26,9 @@ const pool = new Pool({
   port: Number(process.env.DB_PORT || 5432)
 });
 
-function requireApiKey(req, res, next) {
-  if (!INTERNAL_API_KEY) return next();
-  if (req.get('x-api-key') !== INTERNAL_API_KEY) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  next();
-}
+const requireApiKey = createApiKeyGuard(INTERNAL_API_KEY);
 
 app.use('/api', requireApiKey);
-
-function normalizeTableName(name) {
-  const safe = String(name || '');
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(safe)) throw new Error('Invalid table name');
-  return safe.charAt(0).toUpperCase() + safe.slice(1);
-}
-
-function safeField(name) {
-  const safe = String(name || '');
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(safe)) throw new Error('Invalid field name');
-  return safe;
-}
 
 async function connectWithRetry(retries = 15, delay = 1500) {
   for (let i = 0; i < retries; i++) {

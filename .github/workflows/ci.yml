@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - testy
+      - "chore/**"
+      - "feature/**"
+      - "fix/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Tests and quality checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install article extractor dependencies
+        run: npm install --prefix services/article-extractor
+
+      - name: Install storage API dependencies
+        run: npm install --prefix services/storage-api
+
+      - name: Run syntax and automated tests
+        run: npm run ci
+
+      - name: Audit article extractor dependencies
+        run: npm audit --audit-level=high --prefix services/article-extractor
+
+      - name: Audit storage API dependencies
+        run: npm audit --audit-level=high --prefix services/storage-api
+
+  docker:
+    name: Docker builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build article extractor image
+        run: docker build --tag streszczarka-article-extractor:ci services/article-extractor
+
+      - name: Build storage API image
+        run: docker build --tag streszczarka-storage-api:ci services/storage-api

@@ -118,3 +118,16 @@ Tabela `Szum` pozostaje jako osobny zapis treści odfiltrowanych z głównego di
 ### Dashboard
 
 Opcjonalny workflow pobiera ceny i dane rynkowe z kilku źródeł i aktualizuje `Supabase.dashboard`.
+
+## 6. Lockfile zależności
+
+Obie usługi Node.js są niezależnymi pakietami. Po zmianie zależności wygeneruj i commituj ich lockfile osobno:
+
+```bash
+cd services/article-extractor
+npm install
+cd ../storage-api
+npm install
+```
+
+Do repozytorium powinny trafić odpowiednie `package-lock.json`. Pozwala to później przejść w CI i Dockerfile z `npm install` na deterministyczne `npm ci`.
